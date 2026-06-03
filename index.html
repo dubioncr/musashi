@@ -1,0 +1,153 @@
+<!DOCTYPE html>
+<html>
+  <head>
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <script src="https://aframe.io/releases/1.5.0/aframe.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/mind-ar@1.2.5/dist/mindar-image-aframe.prod.js"></script>
+    
+    <style>
+      body { margin: 0; overflow: hidden; font-family: sans-serif; }
+      
+      /* Estilo del mensaje de instrucción */
+      #instruccion {
+        position: absolute;
+        top: 50%;
+        left: 50%;
+        transform: translate(-50%, -50%);
+        z-index: 1000;
+        color: white;
+        background: rgba(0, 0, 0, 0.6);
+        padding: 15px 25px;
+        border-radius: 10px;
+        font-size: 20px;
+        pointer-events: none;
+        text-align: center;
+      }
+    </style>
+
+    <script>
+      AFRAME.registerShader('fresnel-hologram', {
+        schema: {
+          src: {type: 'map'},
+          keyColor: {default: {r: 0, g: 1, b: 0}, type: 'color'},
+          glowColor: {default: {r: 0, g: 0.8, b: 1}, type: 'color'},
+          threshold: {default: 0.45, type: 'number'},
+          fresnelPower: {default: 2.5, type: 'number'}
+        },
+        init: function(data) {
+          const videoTexture = new THREE.VideoTexture(data.src);
+          this.material = new THREE.ShaderMaterial({
+            uniforms: {
+              tex: {value: videoTexture},
+              keyColor: {value: new THREE.Color(data.keyColor)},
+              glowColor: {value: new THREE.Color(data.glowColor)},
+              threshold: {value: data.threshold},
+              fresnelPower: {value: data.fresnelPower}
+            },
+            vertexShader: `
+              varying vec2 vUv;
+              varying vec3 vNormal;
+              varying vec3 vViewPosition;
+              void main() {
+                vUv = uv;
+                vec4 mvPosition = modelViewMatrix * vec4(position, 1.0);
+                vNormal = normalize(normalMatrix * normal);
+                vViewPosition = -mvPosition.xyz;
+                gl_Position = projectionMatrix * mvPosition;
+              }
+            `,
+            fragmentShader: `
+              uniform sampler2D tex;
+              uniform vec3 keyColor;
+              uniform vec3 glowColor;
+              uniform float threshold;
+              uniform float fPower;
+              varying vec2 vUv;
+              varying vec3 vNormal;
+              varying vec3 vViewPosition;
+
+              void main() {
+                vec4 fColor = texture2D(tex, vUv);
+                float diff = distance(fColor.rgb, keyColor);
+                
+                if (diff < threshold) {
+                  discard; 
+                } else {
+                  vec3 viewDir = normalize(vViewPosition);
+                  float fresnel = pow(1.0 - dot(vNormal, viewDir), 2.5);
+                  vec3 finalRGB = mix(fColor.rgb, glowColor, fresnel * 0.7);
+                  float alpha = 0.85 + (fresnel * 0.3);
+                  gl_FragColor = vec4(finalRGB, alpha);
+                }
+              }
+            `,
+            transparent: true
+          });
+        },
+        tick: function() {
+          if (this.material && this.material.uniforms.tex.value) {
+            this.material.uniforms.tex.value.needsUpdate = true;
+          }
+        }
+      });
+    </script>
+  </head>
+  <body>
+    <div id="instruccion">Escanea el cuadro</div>
+
+    <a-scene 
+      mindar-image="imageTargetSrc: ./target.mind; uiScanning: no;" 
+      renderer="colorManagement: true" 
+      vr-mode-ui="enabled: false">
+      
+      <a-assets>
+        <video id="michael3" src="./fondo.mp4" loop="true" crossorigin="anonymous" playsinline></video>
+        <video id="notAlone" src="./musashi.mp4" loop="true" crossorigin="anonymous" playsinline></video>
+      </a-assets>
+
+      <a-camera position="0 0 0" look-controls="enabled: false"></a-camera>
+
+      <a-entity id="target0" mindar-image-target="targetIndex: 0">
+        <a-entity 
+          geometry="primitive: plane; width: 1.1; height: 1.76" 
+          material="shader: fresnel-hologram; src: #michael3; keyColor: #00FF00; glowColor: #00E5FF; threshold: 0"
+          rotation="0 0 0"
+          position="0 0 0"
+          scale="1 1 1">
+        </a-entity>
+
+        <a-entity 
+          geometry="primitive: plane; width: 1.1; height: 1.76" 
+          material="shader: fresnel-hologram; src: #notAlone; keyColor: #00FF00; glowColor: #00E5FF; threshold: 0.7"
+          rotation="0 0 0"
+          position="-0.1 0 0.25"
+          scale="1 1 1">
+        </a-entity>
+      </a-entity>
+    </a-scene>
+
+    <script>
+      const targetEntity = document.getElementById('target0');
+      const video1 = document.querySelector('#michael3');
+      const video2 = document.querySelector('#notAlone');
+      const instruccion = document.getElementById('instruccion');
+
+      targetEntity.addEventListener("targetFound", () => {
+        instruccion.style.display = 'none'; // Oculta el mensaje al encontrar el objetivo
+        video1.play();
+        video2.play();
+      });
+
+      targetEntity.addEventListener("targetLost", () => {
+        video1.pause();
+        video2.pause();
+      });
+
+      window.addEventListener('click', () => { 
+        video1.play(); video1.pause(); 
+        video2.play(); video2.pause(); 
+      }, { once: true });
+    </script>
+  </body>
+</html>
+
